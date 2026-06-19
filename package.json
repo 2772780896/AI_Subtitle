@@ -1,12 +1,14 @@
 {
   "name": "ai_subtitle",
   "version": "1.0.0",
-  "main": "index.js",
+  "main": "backend/app.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "dev": "node backend/app.js",
+    "start": "node backend/app.js"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "description": ""
+  "description": "AI字幕生成工具 - 后端",
+  "dependencies": {}
 }
