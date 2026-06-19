@@ -10,5 +10,11 @@
   "author": "",
   "license": "ISC",
   "description": "AI字幕生成工具 - 后端",
-  "dependencies": {}
+  "dependencies": {
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "multer": "^2.2.0",
+    "uuid": "^14.0.0"
+  }
 }
