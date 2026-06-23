@@ -5,7 +5,7 @@ const cors = require('cors')
 const path = require('path')
 const fs = require('fs')
 
-const subtitleRoutes = require('./routes/subtitle')
+const subtitleRoutes = require('./routes/route.js')
 
 const app = express()
 const PORT = process.env.PORT || 3000
