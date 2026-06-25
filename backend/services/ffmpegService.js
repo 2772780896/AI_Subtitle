@@ -26,8 +26,16 @@ const path = require('path')
  * - exec 会把命令字符串传给 shell 解析，有命令注入风险
  * - execFile 直接执行可执行文件 + 参数数组，更安全
  *
- * 为什么用 Promise 包装：
- * - execFile 是回调风格，包装成 Promise 后可以用 async/await
+ * 为什么必须用 new Promise 包装（不能用 async 代替）：
+ * - execFile 是回调式异步 API，结果藏在回调参数（stdout/stderr）里
+ * - async 只能把同步的 return/throw 转成 resolve/reject，够不着回调里的值
+ * - 只有 resolve/reject 才能充当"传值通道"，把回调里的值送到 Promise 外面
+ * - 同时 Promise 也充当"信号线"：execFile 完成 → 触发回调 → 调 resolve
+ *   → Promise 状态变化 → await 收到结果。没有 Promise，await 无从得知何时完成
+ *
+ * 为什么封装成 Promise：
+ * - execFile 是回调风格，包装成 Promise 后可以用 async/await 控制执行顺序
+ * - 否则多个命令会并发执行（如先提取音频再烧字幕，必须串行）
  */
 function runCommand(cmd, args) {
   return new Promise((resolve, reject) => {
@@ -36,6 +44,7 @@ function runCommand(cmd, args) {
         // FFmpeg 的错误信息在 stderr 里（即使成功也会有 stderr 输出）
         reject(new Error(stderr || error.message))
       } else {
+        // resolve 把 stdout 通过"传值通道"送到 Promise 外面，await 就能拿到
         resolve(stdout)
       }
     })

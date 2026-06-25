@@ -118,7 +118,7 @@ async function processVideo(taskId) {
 
     // ========== 第 4 步：数据清洗 + SRT 生成 ==========
     updateTask(taskId, { status: 'cleaning', progress: 70 }, log)
-    const { srtPath } = cleanAndGenerate(resultData, baseName, log)
+    const { srtPath } = await cleanAndGenerate(resultData, baseName, log)
     updateTask(taskId, { status: 'generating', progress: 80 }, log)
 
     // ========== 第 5 步：FFmpeg 烧录字幕 ==========

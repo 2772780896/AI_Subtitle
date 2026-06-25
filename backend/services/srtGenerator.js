@@ -23,7 +23,7 @@ const path = require('path')
  * 去掉常见的无意义语气词和口头禅
  *
  * 为什么要去掉：
- * ASR 会忠实地识别所有声音，包括"嗯""啊""那个"等口头禅。
+ * ASR 会忠实地识别所有声音，包括"嗯""啊"
  * 这些词对理解内容没有帮助，出现在字幕里反而影响阅读体验。
  *
  * 正则说明：
@@ -32,8 +32,6 @@ const path = require('path')
  */
 const FILLER_WORDS = [
   '嗯', '啊', '呃', '哦', '噢', '嗯嗯',
-  '那个', '就是说', '然后呢', '对吧', '是吧',
-  '这个', '怎么说呢',
 ]
 
 /**
@@ -44,10 +42,18 @@ const FILLER_WORDS = [
  * 实现方式：用正则把每个语气词替换为空字符串，然后清理多余空格
  */
 function removeFillers(text) {
-  // 构建正则：(嗯|啊|呃|...) 匹配任意一个语气词
+  // 构建正则表达式：
+  // FILLER_WORDS.join('|') 把数组拼成字符串 '嗯|啊|呃|...'
+  // | 在正则里是"或"的意思，匹配任意一个语气词
+  // 'g' 标志表示全局匹配（替换所有出现，不只是第一个）
+  // 等价于写死：/嗯|啊|呃|哦|噢|嗯嗯/g
   const pattern = new RegExp(FILLER_WORDS.join('|'), 'g')
-  // 替换为空，然后去掉首尾空格和连续空格
-  return text.replace(pattern, '').replace(/\s+/g, ' ').trim()
+
+  // 三步处理：
+  return text
+    .replace(pattern, '')    // ① 把语气词替换为空字符串（删除）
+    .replace(/\s+/g, ' ')    // ② 把多个连续空格压成一个空格
+    .trim()                  // ③ 去掉首尾的空格
 }
 
 // ============================================================
@@ -76,8 +82,11 @@ function mergeShort(segments) {
     const duration = seg.EndTime - seg.StartTime
 
     if (duration < 1 && i < segments.length - 1) {
-      // 太短了，合并到下一条：把文字加到下一条开头
+      // 太短了，合并到下一条：
+      // ① 文字拼到下一条开头
       segments[i + 1].Text = seg.Text + segments[i + 1].Text
+      // ② 时间范围扩大：下一条的 StartTime 改为当前的 StartTime
+      segments[i + 1].StartTime = seg.StartTime
       // 不 push 当前这条，跳过它
     } else if (duration < 1 && result.length > 0) {
       // 最后一条太短，合并到上一条：把文字追加到上一条末尾
@@ -133,10 +142,10 @@ function splitLong(segments) {
       }
 
       // 在前 20 个字里找最后一个标点，作为断点
-      const slice = remaining.slice(0, 20)
+      const chunk = remaining.slice(0, 20)
       let lastPunct = -1
-      for (let i = slice.length - 1; i >= 0; i--) {
-        if (PUNCTUATION.test(slice[i])) {
+      for (let i = chunk.length - 1; i >= 0; i--) {
+        if (PUNCTUATION.test(chunk[i])) {
           lastPunct = i
           break
         }
@@ -174,42 +183,35 @@ function splitLong(segments) {
 }
 
 // ============================================================
-// 清洗规则 4：限制时长和行数
+// 验证：检查数据是否符合规范，打警告日志（不改数据）
 // ============================================================
 /**
- * 确保每条字幕时长在 1~5 秒之间，文字不超过 2 行（每行 20 字）
+ * 验证字幕数据，不符合规范时打警告日志
  *
- * 为什么要限制时长：
- * - < 1 秒：观众来不及读（前面 mergeShort 已处理大部分）
- * - > 5 秒：画面可能已经换了内容，字幕还在，造成困惑
- *
- * 为什么要限制行数：
- * 字幕最多 2 行，每行最多 20 字。超过就显示不全或遮挡画面。
+ * 检查项：
+ * - 文字长度 ≤ 20 字（单行字幕）
+ * - 时长 1~5 秒
  *
  * @param {Array} segments - 片段数组
- * @returns {Array} 处理后的数组
+ * @param {object} log - Winston logger 实例
+ * @returns {Array} 原样返回（不修改数据）
  */
-function enforceLimits(segments) {
+function validate(segments, log) {
+  segments.forEach((seg, i) => {
+    const duration = seg.EndTime - seg.StartTime
+    const num = i + 1
+
+    if (seg.Text.length > 20) {
+      log.warn(`[validate] 第 ${num} 条超过 20 字：${seg.Text.length} 字`)
+    }
+    if (duration < 1) {
+      log.warn(`[validate] 第 ${num} 条时长不足 1 秒：${duration.toFixed(2)} 秒`)
+    }
+    if (duration > 5) {
+      log.warn(`[validate] 第 ${num} 条时长超过 5 秒：${duration.toFixed(2)} 秒`)
+    }
+  })
   return segments
-    // 过滤掉空文本（可能清洗后变成空字符串）
-    .filter(seg => seg.Text.trim().length > 0)
-    .map(seg => {
-      let text = seg.Text
-
-      // 如果超过 40 字（2 行 × 20 字），截断
-      // 实际上 splitLong 已经处理了，这里是兜底
-      if (text.length > 40) {
-        text = text.slice(0, 40)
-      }
-
-      // 时长上限 5 秒
-      let endTime = seg.EndTime
-      if (endTime - seg.StartTime > 5) {
-        endTime = seg.StartTime + 5
-      }
-
-      return { ...seg, Text: text, EndTime: endTime }
-    })
 }
 
 // ============================================================
@@ -222,75 +224,30 @@ function enforceLimits(segments) {
  * 每条字幕由 4 部分组成：
  *   序号
  *   开始时间 --> 结束时间（格式：HH:MM:SS,mmm）
- *   字幕文字（最多 2 行）
+ *   字幕文字
  *   空行（分隔符）
  *
- * 示例：
- *   1
- *   00:00:01,500 --> 00:00:03,200
- *   大家好，今天我们来聊一个话题
- *
- *   2
- *   00:00:03,500 --> 00:00:06,000
- *   这个话题是关于人工智能的
+ * 时间格式化已内联，SRT 用逗号 , 分隔毫秒（不是小数点 .）
  *
  * @param {Array} segments - 清洗后的片段数组
  * @returns {string} SRT 格式文本
  */
 function formatSrt(segments) {
   return segments.map((seg, i) => {
-    const start = formatTime(seg.StartTime)
-    const end = formatTime(seg.EndTime)
-
-    // 文字分行：超过 20 字就分成两行
-    let text = seg.Text
-    if (text.length > 20) {
-      // 在前 20 字里找标点断行
-      const firstLine = findLineBreak(text, 20)
-      text = firstLine + '\n' + text.slice(firstLine.length)
+    // 时间格式化（内联，避免额外函数调用）
+    const fmt = (seconds) => {
+      const h = Math.floor(seconds / 3600)
+      const m = Math.floor((seconds % 3600) / 60)
+      const s = Math.floor(seconds % 60)
+      const ms = Math.round((seconds % 1) * 1000)
+      return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')},${String(ms).padStart(3, '0')}`
     }
 
-    return `${i + 1}\n${start} --> ${end}\n${text}\n`
+    const start = fmt(seg.StartTime)
+    const end = fmt(seg.EndTime)
+
+    return `${i + 1}\n${start} --> ${end}\n${seg.Text}\n`
   }).join('\n')
-}
-
-/**
- * 秒数 → SRT 时间格式（HH:MM:SS,mmm）
- *
- * 例：65.123 → "00:01:05,123"
- *
- * @param {number} seconds - 秒数（浮点数，如 65.123）
- * @returns {string} SRT 时间字符串
- *
- * 注意 SRT 用逗号 , 分隔毫秒，不是小数点 .
- * 这是 SRT 标准格式，FFmpeg 也是按这个格式解析的
- */
-function formatTime(seconds) {
-  const h = Math.floor(seconds / 3600)
-  const m = Math.floor((seconds % 3600) / 60)
-  const s = Math.floor(seconds % 60)
-  const ms = Math.round((seconds % 1) * 1000)
-
-  // padStart(2, '0') 补零到 2 位，padStart(3, '0') 补到 3 位
-  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')},${String(ms).padStart(3, '0')}`
-}
-
-/**
- * 在指定位置附近找标点作为换行点
- * @param {string} text - 文本
- * @param {number} maxLen - 最大行长度
- * @returns {string} 第一行文本
- */
-function findLineBreak(text, maxLen) {
-  const PUNCTUATION = /[，。！？；、,.\!\?]/
-  // 从 maxLen 往前找标点
-  for (let i = maxLen - 1; i >= 0; i--) {
-    if (PUNCTUATION.test(text[i])) {
-      return text.slice(0, i + 1)
-    }
-  }
-  // 找不到标点就在 maxLen 处硬切
-  return text.slice(0, maxLen)
 }
 
 // ============================================================
@@ -309,44 +266,41 @@ function findLineBreak(text, maxLen) {
  * 1. storage/output/{baseName}.srt      ← 清洗后的字幕（给 FFmpeg 用）
  * 2. storage/output/{baseName}.raw.txt  ← 原始识别结果（备份查验）
  */
-function cleanAndGenerate(asrResult, baseName, log) {
+async function cleanAndGenerate(asrResult, baseName, log) {
   log.info(`[clean] 开始清洗，原始条数: ${asrResult.length}`)
 
-  // 保存原始结果备份（清洗前的原文 + 时间戳）
-  const rawContent = asrResult.map(seg =>
-    `[${formatTime(seg.StartTime)} --> ${formatTime(seg.EndTime)}] ${seg.Text}`
-  ).join('\n')
+  // 复用 formatSrt 生成原始备份，格式统一，还能直接用播放器打开对比
+  const rawContent = formatSrt(asrResult)
   const rawPath = path.join(__dirname, `../storage/output/${baseName}.raw.txt`)
-  fs.writeFileSync(rawPath, rawContent, 'utf-8')
+  await fs.promises.writeFile(rawPath, rawContent, 'utf-8')
 
   // 按顺序执行清洗规则
-  // 注意顺序很重要：去语气词 → 合并短句 → 拆长句 → 再合并一次（兜底拆分产生的残余）→ 限制时长
+  // 注意顺序很重要：去语气词 → 合并短句 → 拆长句 → 再合并一次（兜底拆分产生的残余）→ 过滤空文本 → 限制时长
   let segments = [...asrResult]  // 浅拷贝，不修改原数据
-  segments = removeFillers_batch(segments)
+  segments = segments.map(seg => ({ ...seg, Text: removeFillers(seg.Text) }))  // 去语气词
   segments = mergeShort(segments)
   segments = splitLong(segments)
   segments = mergeShort(segments)  // 拆分可能产生过短的尾部，再合并一次
-  segments = enforceLimits(segments)
+
+  // 功能操作：过滤空文本 + 限制时长上限 5 秒
+  segments = segments.filter(seg => seg.Text.trim().length > 0)
+  segments = segments.map(seg => ({
+    ...seg,
+    EndTime: seg.EndTime - seg.StartTime > 5 ? seg.StartTime + 5 : seg.EndTime
+  }))
+
+  // 验证：检查数据是否符合规范，打警告日志
+  segments = validate(segments, log)
 
   log.info(`[clean] 清洗完成，最终条数: ${segments.length}`)
 
   // 生成 SRT 文件
   const srtContent = formatSrt(segments)
   const srtPath = path.join(__dirname, `../storage/output/${baseName}.srt`)
-  fs.writeFileSync(srtPath, srtContent, 'utf-8')
+  await fs.promises.writeFile(srtPath, srtContent, 'utf-8')
 
   log.info(`[generateSrt] 已生成: ${baseName}.srt`)
   return { srtPath, rawPath }
-}
-
-/**
- * 批量去除语气词（对每条 segment 的 Text 字段调用 removeFillers）
- */
-function removeFillers_batch(segments) {
-  return segments.map(seg => ({
-    ...seg,
-    Text: removeFillers(seg.Text),
-  }))
 }
 
 module.exports = { cleanAndGenerate }

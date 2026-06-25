@@ -1,0 +1,14 @@
+winston日志记录
+
+.execfile执行ffmpeg命令，对执行包一层promise，用于异步
+
+问题3：log 为什么作为参数传入，而不是在文件里直接 import？
+两种方式都能工作，但传参的方式更好，原因是：如果直接 import，那你在 ffmpegService.js 里创建一个 logger，它是全局的，没有 taskId 信息：
+// ❌ 如果直接导入
+const { appLogger } = require('./logger')
+appLogger.info('提取音频完成')  
+// 输出: 2025-06-25 10:00:00 info: 提取音频完成   ← 不知道是哪个任务的
+通过参数传入，调用方（processVideo.js）可以传入带 taskId 的任务日志器：
+
+promise包裹exec，exec的回调函数在内部，外部无法得到异步回调通知，但通过promise将resolve插入exec的回调函数中，
+实现获取exec的异步进度，使得外部对promise的await实际相当于对exec的await
