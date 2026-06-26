@@ -12,7 +12,7 @@ const { tasks } = require('./store')
  * processVideo.js - 主编排器
  *
  * 职责：接收 taskId，按顺序调用所有 service 完成视频处理。
- * route.js 调用本函数后立即返回响应（fire-and-forget），不阻塞 HTTP 请求。
+ * route.js 故意不 await 本函数，立即返回响应，不阻塞 HTTP 请求。
  *
  * 调用链：
  *   route.js → processVideo(taskId) → 立即返回
@@ -33,6 +33,9 @@ const { tasks } = require('./store')
 function updateTask(taskId, updates, log) {
   const task = tasks.get(taskId)
   if (task) {
+    // Object.assign 直接修改原对象，Map 里的引用不变但内容变了
+    // 也可以用展开运算符：const updated = { ...task, ...updates }; tasks.set(taskId, updated)
+    // 但那样更啰嗦，不如 Object.assign 直接
     Object.assign(task, updates)
   }
   // 有 status 变化时记一条日志
@@ -71,7 +74,7 @@ async function processVideo(taskId) {
     updateTask(taskId, { status: 'recognizing', progress: 30 }, log)
 
     // 读取音频文件并转 base64（腾讯云 ASR 要求 base64 编码传输音频）
-    const audioData = fs.readFileSync(wavPath).toString('base64')
+    const audioData = (await fs.promises.readFile(wavPath)).toString('base64')
 
     // CreateRecTask 参数说明：
     // EngineModelType: 识别引擎（用户在前端选的，如 16k_zh = 中文普通话）
@@ -109,6 +112,7 @@ async function processVideo(taskId) {
     // ASR 返回的 ResultDetail 是分段时间轴数组
     // 每条格式：{ FinalSentence: "...", StartMs: 1980, EndMs: 3270, ... }
     // 转换为 srtGenerator 需要的格式：{ StartTime: 秒, EndTime: 秒, Text: 文字 }
+    // 优化方向：让 srtGenerator 直接接收 ASR 格式，省去这次遍历转换
     const resultData = asrData.ResultDetail.map(item => ({
       StartTime: item.StartMs / 1000,  // 毫秒 → 秒
       EndTime: item.EndMs / 1000,
@@ -172,6 +176,8 @@ async function retryRequest(action, payload, log, maxRetries = 3) {
       log.error(`${action} 请求失败 (第 ${i + 1}/${maxRetries} 次): ${err.message}`)
       if (i === maxRetries - 1) throw err  // 最后一次还失败，抛出
       // 等待 2 秒后重试
+      // setTimeout(resolve, 2000) 等价于 setTimeout(() => { resolve() }, 2000)
+      // 直接把 resolve 函数传进去，2 秒后 setTimeout 调用它，Promise 完成
       await new Promise(resolve => setTimeout(resolve, 2000))
     }
   }

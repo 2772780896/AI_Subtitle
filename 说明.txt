@@ -12,3 +12,5 @@ appLogger.info('提取音频完成')
 
 promise包裹exec，exec的回调函数在内部，外部无法得到异步回调通知，但通过promise将resolve插入exec的回调函数中，
 实现获取exec的异步进度，使得外部对promise的await实际相当于对exec的await
+
+独立的map内存存储用于存task信息

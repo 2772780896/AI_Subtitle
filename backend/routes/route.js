@@ -83,7 +83,7 @@ router.post('/upload', upload.single('video'), (req, res) => {
     console.log(`[${new Date().toISOString()}] 收到上传请求: ${req.file.originalname}`)
     console.log(`[${new Date().toISOString()}] 任务创建: ${taskId}`)
 
-    // 启动后台处理（fire-and-forget，不阻塞响应）
+    // 故意不 await，让后台异步处理，不阻塞响应
     processVideo(taskId)
 
     res.json({ taskId, status: 'uploading' })
