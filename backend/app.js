@@ -15,7 +15,7 @@ app.use(cors())
 app.use(express.json())
 
 // 确保目录存在
-const dirs = ['storage/input', 'storage/temp', 'storage/output']
+const dirs = ['storage/input', 'storage/temp', 'storage/output', 'storage/logs']
 dirs.forEach(dir => {
   const dirPath = path.join(__dirname, dir)
   if (!fs.existsSync(dirPath)) {

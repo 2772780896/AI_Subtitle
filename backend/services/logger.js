@@ -31,7 +31,7 @@ const appLogger = winston.createLogger({
  * 所以 processVideo 创建 logger 后传给每个 service，让它们用同一个带 taskId 的实例。
  */
 function createTaskLogger(taskId) {
-  const logPath = path.join(__dirname, `../storage/output/${taskId}.log`)
+  const logPath = path.join(__dirname, `../storage/logs/${taskId}.log`)
 
   return winston.createLogger({
     level: 'info',

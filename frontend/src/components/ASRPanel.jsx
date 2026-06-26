@@ -16,9 +16,8 @@ export default function ASRPanel() {
   // === 视频文件 ===
   const [videoFile, setVideoFile] = useState(null)
   const [blobUrl, setBlobUrl] = useState(null)
-  const fileInputRef = useRef(null)
+  const fileInputRef = useRef(null)  // file input 的 value 只读，不能用 state 清空，只能用 ref 直接操作 DOM
   const videoContainerRef = useRef(null)
-  const subtitleRef = useRef(null)
   const [aspectRatio, setAspectRatio] = useState('16/9')
 
   // === 字幕样式 ===
@@ -55,20 +54,23 @@ export default function ASRPanel() {
     return () => URL.revokeObjectURL(url)
   }, [videoFile])
 
-  // === 字幕拖拽 ===
+  // 字幕拖拽：鼠标按下 → 接管 document 的 mousemove/mouseup → 松开时卸载监听
+  // 挂在 document 上而非字幕元素上，防止鼠标移太快跑出元素范围后监听失效
   const startDrag = (e) => {
-    e.preventDefault()
-    const startY = e.clientY
-    const startMargin = style.marginV
-    const containerH = videoContainerRef.current?.clientHeight || 400
+    e.preventDefault()  // 阻止拖拽时浏览器选中文字
+    const startY = e.clientY        // 鼠标按下的 Y 坐标
+    const startMargin = style.marginV // 当前字幕位置（百分比）
+    const containerH = videoContainerRef.current?.clientHeight || 400  // 容器高度
 
+    // 鼠标移动时：算出新位置，更新字幕
     const onMove = (e) => {
-      const diffPx = startY - e.clientY
-      const diffPct = (diffPx / containerH) * 100
-      const newPct = Math.max(0, Math.min(100, startMargin + diffPct))
+      const diffPx = startY - e.clientY      // 鼠标上移了多少像素
+      const diffPct = (diffPx / containerH) * 100  // 转成百分比
+      const newPct = Math.max(0, Math.min(100, startMargin + diffPct))  // 限制 0%~100%
       setStyle(prev => ({ ...prev, marginV: Math.round(newPct) }))
     }
 
+    // 鼠标松开时：卸载监听，交还控制权给 document
     const onUp = () => {
       document.removeEventListener('mousemove', onMove)
       document.removeEventListener('mouseup', onUp)
@@ -76,17 +78,6 @@ export default function ASRPanel() {
 
     document.addEventListener('mousemove', onMove)
     document.addEventListener('mouseup', onUp)
-  }
-
-  // === 描边 CSS ===
-  const outlineShadow = () => {
-    const o = style.outline
-    const c = style.outlineColor
-    if (o === 0) return 'none'
-    return [
-      `-${o}px -${o}px 0 ${c}`, `${o}px -${o}px 0 ${c}`,
-      `-${o}px  ${o}px 0 ${c}`, `${o}px  ${o}px 0 ${c}`,
-    ].join(', ')
   }
 
   // === 上传 + 开始处理 ===
@@ -172,6 +163,7 @@ export default function ASRPanel() {
           className="block text-sm text-gray-600 file:mr-3 file:py-2 file:px-4 file:rounded file:border-0 file:bg-blue-600 file:text-white file:cursor-pointer hover:file:bg-blue-700 disabled:opacity-50"
         />
         {videoFile && (
+          // videoFile.size 是字节数，/ 1024 / 1024 转为 MB
           <p className="text-sm text-gray-500">
             {videoFile.name}（{(videoFile.size / 1024 / 1024).toFixed(1)} MB）
           </p>
@@ -184,13 +176,13 @@ export default function ASRPanel() {
           <h3 className="text-lg font-semibold">字幕预览（可拖拽调整位置）</h3>
           <div
             ref={videoContainerRef}
-            className="relative rounded-lg overflow-hidden select-none"
-            style={{ aspectRatio }}
+            className="relative rounded-lg overflow-hidden select-none bg-black"
+            style={{ aspectRatio, maxHeight: '70vh' }}
           >
             <video
               src={blobUrl}
               controls
-              className="w-full h-full object-cover"
+              className="w-full h-full object-contain"
               onLoadedMetadata={(e) => {
                 const { videoWidth, videoHeight } = e.target
                 if (videoWidth && videoHeight) {
@@ -200,7 +192,6 @@ export default function ASRPanel() {
             />
             {/* 字幕预览层 */}
             <div
-              ref={subtitleRef}
               onMouseDown={startDrag}
               className="absolute left-0 right-0 text-center cursor-grab active:cursor-grabbing"
               style={{
@@ -208,7 +199,8 @@ export default function ASRPanel() {
                 fontFamily: style.fontName,
                 fontSize: `${style.fontSize}px`,
                 color: style.fontColor,
-                textShadow: outlineShadow(),
+                WebkitTextStroke: `${style.outline}px ${style.outlineColor}`,
+                paintOrder: 'stroke fill',  // 描边在文字后面，不侵蚀文字
                 lineHeight: 1.4,
                 padding: '0 8px',
               }}
@@ -321,15 +313,15 @@ export default function ASRPanel() {
             <span>结果格式</span>
             <select
               value={asrConfig.resTextFormat}
-              onChange={(e) => setAsrConfig({ ...asrConfig, resTextFormat: Number(e.target.value) })}
-              disabled={isProcessing}
+              disabled  // 当前只支持格式 3（按标点分段），其他格式数据结构不同，srtGenerator 未适配
               className="border rounded px-2 py-1.5 disabled:opacity-50"
             >
               <option value={0}>基础识别结果</option>
               <option value={1}>基础 + 词级时间戳</option>
               <option value={2}>基础 + 时间戳 + 标点</option>
-              <option value={3}>按标点分段（字幕场景）</option>
+              <option value={3}>按标点分段（字幕场景）← 当前唯一支持</option>
             </select>
+            <span className="text-xs text-gray-400">仅支持格式 3，其他格式需改 srtGenerator 适配</span>
           </label>
         </div>
       </section>
@@ -401,7 +393,7 @@ export default function ASRPanel() {
               </a>
             )}
             {task.rawUrl && (
-              <a href={task.rawUrl} download className="px-4 py-2 bg-gray-600 text-white rounded text-sm hover:bg-gray-700 transition-colors">
+              <a href={task.rawUrl} download className="px-4 py-2 bg-blue-600 text-white rounded text-sm hover:bg-gray-700 transition-colors">
                 下载原始识别结果
               </a>
             )}
